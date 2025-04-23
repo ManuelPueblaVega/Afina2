@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conectar para sonar – Afinador</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --c-coral: #ff6b6b;
+      --c-orange: #ffa94d;
+      --c-green: #38b48b;
+      --c-purple: #a284ee;
+      --c-black: #1b1b1b;
+
+      /* Boomwhacker colors */
+      --bw-C: #ff0000;  /* Rojo */
+      --bw-D: #ff7f00;  /* Naranja */
+      --bw-E: #ffff00;  /* Amarillo */
+      --bw-F: #00ff00;  /* Verde claro */
+      --bw-G: #00ccff;  /* Cian */
+      --bw-A: #8a2be2;  /* Púrpura */
+      --bw-B: #ff00ff;  /* Magenta */
+    }
+    body {
+      background: radial-gradient(circle at 50% 0%, #fffdf9 0%, #f2f0eb 100%);
+      color: var(--c-black);
+      font-family: "Arial", sans-serif;
+    }
+    .btn-note:hover {
+      filter: brightness(1.1);
+    }
+    /* Nota actualmente seleccionada */
+    .btn-note.selected {
+      outline: 4px solid var(--c-orange);
+      outline-offset: 3px;
+      transform: scale(1.05);
+      transition: transform 150ms ease, outline-color 150ms ease;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 select-none">
+  <!-- Logo & título -->
+  <header class="flex flex-col items-center gap-4 mb-6">
+    <img src="conectar_logo.png" alt="Logo Conectar para sonar" class="w-24 h-24" loading="lazy" />
+    <h1 class="text-3xl md:text-4xl font-extrabold text-center">
+      Afinador de Instrumentos
+    </h1>
+  </header>
+
+  <!-- Selectores -->
+  <div class="flex flex-col md:flex-row gap-4 items-center mb-4 w-full justify-center">
+    <div class="flex flex-col items-start">
+      <label for="instrument" class="font-semibold">Instrumento:</label>
+      <select id="instrument" class="p-2 rounded-lg shadow focus:outline-none focus:ring-2 focus:ring-orange-300"></select>
+    </div>
+    <div class="flex flex-col items-start">
+      <label for="tuning" class="font-semibold">Afinación / Tipo:</label>
+      <select id="tuning" class="p-2 rounded-lg shadow focus:outline-none focus:ring-2 focus:ring-orange-300"></select>
+    </div>
+  </div>
+
+  <!-- Botones de cuerdas -->
+  <div id="strings" class="grid grid-cols-2 gap-4 mb-6 w-full max-w-md"></div>
+
+  <!-- Información de nota objetivo -->
+  <div id="targetNoteLabel" class="text-xl font-semibold mb-2 h-7 flex items-center justify-center"></div>
+
+  <!-- Botón micrófono -->
+  <button id="listenBtn" class="bg-[var(--c-green)] hover:bg-[var(--c-green)]/90 text-white px-6 py-3 rounded-xl shadow-lg mb-4 transition-colors flex items-center gap-2">
+    🎤 <span>Escuchar</span>
+  </button>
+
+  <!-- Botón guía rápida -->
+  <button id="guideBtn" class="bg-[var(--c-purple)] hover:bg-[var(--c-purple)]/90 text-white px-6 py-3 rounded-xl shadow-lg mb-4 transition-colors flex items-center gap-2">
+    📚 <span>Guía</span>
+  </button>
+
+  <!-- Indicadores -->
+  <div class="flex flex-col items-center mb-4">
+    <div id="tuneIndicator" class="text-5xl font-semibold">⚪</div>
+  </div>
+
+  <!-- Modal Guía rápida -->
+  <div id="guideModal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-50">
+    <div class="bg-white rounded-2xl p-6 max-w-sm text-center space-y-4 shadow-lg">
+      <h2 class="text-2xl font-semibold mb-2">📚 Guía rápida</h2>
+      <p class="text-left">
+        1️⃣ Elige instrumento y afinación. 2️⃣ Pulsa cada 🎵 para seleccionar la cuerda y oír la nota. 3️⃣ Ajusta hasta ver <span class="font-bold text-green-600">😄 Afinado</span>. 4️⃣ Usa 🎤 para afinación automática.
+      </p>
+      <button id="closeGuide" class="bg-[var(--c-coral)] hover:bg-[var(--c-coral)]/90 text-white px-4 py-2 rounded-lg">
+        Cerrar
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal de permisos -->
+  <div id="modal" class="fixed inset-0 hidden items-center justify-center bg-black/50 p-4 z-50">
+    <div class="bg-white rounded-2xl p-6 max-w-sm text-center space-y-4 shadow-lg">
+      <h3 class="text-xl font-semibold">Permiso de micrófono denegado</h3>
+      <p class="text-sm">
+        Ve a los ajustes del navegador → Sitio web → Permisos → <strong>Micrófono</strong> y selecciona «Permitir».
+      </p>
+      <button id="closeModal" class="bg-[var(--c-coral)] hover:bg-[var(--c-coral)]/90 text-white px-4 py-2 rounded-lg">
+        Entendido
+      </button>
+    </div>
+  </div>
+
+  <!-- Créditos -->
+  <footer class="mt-8 text-xl">🎶 Creado por Manuel Puebla Vega 🎶</footer>
+
+  <!-- JS principal -->
+  <script>
+    /* ------------------ Helpers ------------------ */
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+    const labelize = (key) =>
+      key
+        .replace("estándar", "Estándar")
+        .replace(/^drop([A-Z])/, "Drop $1")
+        .replace("sharp", "♯")
+        .replace(/([A-Z])/g, " $1")
+        .trim();
+
+    /* ------------------ Colores Boomwhacker ------------------ */
+    const bwColors = {
+      C: getCssVar("--bw-C"),
+      D: getCssVar("--bw-D"),
+      E: getCssVar("--bw-E"),
+      F: getCssVar("--bw-F"),
+      G: getCssVar("--bw-G"),
+      A: getCssVar("--bw-A"),
+      B: getCssVar("--bw-B"),
+    };
+    function getCssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name) || "#ccc";
+    }
+    function colorFor(note) {
+      const letter = note.match(/[A-G]/)[0];
+      return bwColors[letter] ?? "#ccc";
+    }
+    function displayNote(note) {
+      return note.replace(/\d+/g, "");
+    }
+
+    /* ------------------ Datos de afinación ------------------ */
+    const tunings = {
+      ukelele: {
+        soprano: [
+          { note: "A4", freq: 440 },
+          { note: "E4", freq: 329.63 },
+          { note: "C4", freq: 261.63 },
+          { note: "G4", freq: 392 },
+        ],
+        baritono: [
+          { note: "E4", freq: 329.63 },
+          { note: "B3", freq: 246.94 },
+          { note: "G3", freq: 196 },
+          { note: "D3", freq: 146.83 },
+        ],
+      },
+      guitarra: {
+        estándar: [
+          { note: "E4", freq: 329.63 }, // cuerda 1
+          { note: "B3", freq: 246.94 },
+          { note: "G3", freq: 196 },
+          { note: "D3", freq: 146.83 },
+          { note: "A2", freq: 110 },
+          { note: "E2", freq: 82.41 }, // cuerda 6
+        ],
+        dropD: [
+          { note: "E4", freq: 329.63 },
+          { note: "B3", freq: 246.94 },
+          { note: "G3", freq: 196 },
+          { note: "D3", freq: 146.83 },
+          { note: "A2", freq: 110 },
+          { note: "D2", freq: 73.42 },
+        ],
+        dropC: [
+          { note: "D4", freq: 293.66 },
+          { note: "A3", freq: 220 },
+          { note: "F3", freq: 174.61 },
+          { note: "C3", freq: 130.81 },
+          { note: "G2", freq: 98 },
+          { note: "C2", freq: 65.41 },
+        ],
+        dropE: [
+          { note: "E4", freq: 329.63 },
+          { note: "B3", freq: 246.94 },
+          { note: "G#3", freq: 207.65 },
+          { note: "E3", freq: 164.81 },
+          { note: "B2", freq: 123.47 },
+          { note: "E2", freq: 82.41 },
+        ],
+      },
+      bajo: {
+        estándar: [
+          { note: "G2", freq: 98 },
+          { note: "D2", freq: 73.42 },
+          { note: "A1", freq: 55 },
+          { note: "E1", freq: 41.2 },
+        ],
+      },
+      violin: {
+        estándar: [
+          { note: "E5", freq: 659.25 },
+          { note: "A4", freq: 440 },
+          { note: "D4", freq: 293.66 },
+          { note: "G3", freq: 196 },
+        ],
+      },
+      cello: {
+        estándar: [
+          { note: "A3", freq: 220 },
+          { note: "D3", freq: 146.83 },
+          { note: "G2", freq: 98 },
+          { note: "C2", freq: 65.41 },
+        ],
+      },
+    };
+
+    /* ------------------ DOM refs ------------------ */
+    const instrumentSel = document.getElementById("instrument");
+    const tuningSel = document.getElementById("tuning");
+    const stringBox = document.getElementById("strings");
+    const listenBtn = document.getElementById("listenBtn");
+    const indicator = document.getElementById("tuneIndicator");
+    const targetNoteLabel = document.getElementById("targetNoteLabel");
+    const modal = document.getElementById("modal");
+    const guideModal = document.getElementById("guideModal");
+
+    document.getElementById("closeModal").addEventListener("click", () => modal.classList.add("hidden"));
+    document.getElementById("guideBtn").addEventListener("click", () => guideModal.classList.remove("hidden"));
+    document.getElementById("closeGuide").addEventListener("click", () => guideModal.classList.add("hidden"));
+
+    /* ------------------ Parámetros de afinación ------------------ */
+    const toleranceCents = 10; // margen aceptable ±cents ("Listo")
+    const smallToleranceCents = 3; // margen para "Afinado" perfecto
+
+    /* Variable de estado: cuerda objetivo seleccionada por el usuario */
+    let currentTarget = null; // {note, freq, string}
+
+    /* ------------------ Inicialización ------------------ */
+    document.addEventListener("DOMContentLoaded", () => {
+      populateInstruments();
+      populateTunings("guitarra");
+      renderButtons("guitarra", "estándar");
+    });
+
+    /* ---------- Selectores dinámicos ---------- */
+    instrumentSel.addEventListener("change", () => {
+      currentTarget = null;
+      populateTunings(instrumentSel.value);
+      renderButtons(instrumentSel.value, tuningSel.value);
+      resetIndicator();
+    });
+    tuningSel.addEventListener("change", () => {
+      currentTarget = null;
+      renderButtons(instrumentSel.value, tuningSel.value);
+      resetIndicator();
+    });
+
+    function populateInstruments() {
+      instrumentSel.innerHTML = "";
+      Object.keys(tunings).forEach((k) => instrumentSel.add(new Option(cap(k), k)));
+      instrumentSel.value = "guitarra";
+    }
+
+    function populateTunings(instr) {
+      const allowedGuitarTunings = ["estándar", "dropC", "dropD", "dropE"];
+      tuningSel.innerHTML = "";
+      Object.keys(tunings[instr])
+        .filter((k) => instr !== "guitarra" || allowedGuitarTunings.includes(k))
+        .forEach((k) => tuningSel.add(new Option(labelize(k), k)));
+      tuningSel.selectedIndex = 0;
+    }
+
+    /* ------------------ Botones cuerdas ------------------ */
+    function renderButtons(instr, tuning) {
+      stringBox.innerHTML = "";
+      const set = tunings[instr][tuning];
+      set.forEach(({ note, freq }, i) => {
+        const stringNum = i + 1; // contamos desde la más aguda (1)
+        const btn = document.createElement("button");
+        btn.className =
+          "btn-note text-[var(--c-black)] w-full px-4 py-6 rounded-2xl shadow-lg flex flex-col items-center text-xl font-semibold transition-all";
+        btn.style.backgroundColor = colorFor(note);
+        btn.innerHTML = `
+          <span class="text-xs mb-1 opacity-70">Cuerda ${stringNum}</span>
+          <span class="text-2xl">${displayNote(note)}</span>
+          <span class="text-3xl">🎵</span>
+        `;
+        btn.dataset.freq = freq;
+        btn.dataset.noteFull = note;
+        btn.dataset.string = stringNum;
+        btn.addEventListener("click", () => {
+          selectString(btn);
+          playTone(freq);
+        });
+        stringBox.appendChild(btn);
+      });
+    }
+
+    function selectString(btn) {
+      stringBox.querySelectorAll(".btn-note").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      currentTarget = {
+        note: btn.dataset.noteFull,
+        freq: Number(btn.dataset.freq),
+        string: btn.dataset.string,
+      };
+      targetNoteLabel.textContent = `Cuerda ${currentTarget.string}: ${displayNote(currentTarget.note)}`;
+    }
+
+    function autoHighlight(targetFreq) {
+      let closestBtn = null,
+        min = Infinity;
+      stringBox.querySelectorAll(".btn-note").forEach((b) => {
+        const diff = Math.abs(targetFreq - Number(b.dataset.freq));
+        if (diff < min) {
+          min = diff;
+          closestBtn = b;
+        }
+      });
+      if (closestBtn) {
+        stringBox.querySelectorAll(".btn-note").forEach((b) => b.classList.remove("selected"));
+        closestBtn.classList.add("selected");
+        targetNoteLabel.textContent = `Cuerda ${closestBtn.dataset.string}: ${displayNote(closestBtn.dataset.noteFull)}`;
+      }
+    }
+
+    /* ------------------ Audio referencia ------------------ */
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playTone(freq) {
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.5, audioCtx.currentTime + 0.01);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 2);
+      osc.stop(audioCtx.currentTime + 2);
+    }
+
+    /* ------------------ Micrófono & detección ------------------ */
+    let analysing = false,
+      analyser,
+      dataArray;
+    listenBtn.addEventListener("click", toggleMic);
+
+    async function toggleMic() {
+      if (!analysing) {
+        const state = await checkMicPerm();
+        if (state === "denied") {
+          modal.classList.remove("hidden");
+          return;
+        }
+        try {
+          if (audioCtx.state === "suspended") await audioCtx.resume();
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 2048;
+          dataArray = new Float32Array(analyser.fftSize);
+          audioCtx.createMediaStreamSource(stream).connect(analyser);
+          analysing = true;
+          listenBtn.innerHTML = "🛑 <span>Parar</span>";
+          analyse();
+        } catch (e) {
+          console.error(e);
+          modal.classList.remove("hidden");
+        }
+      } else {
+        analysing = false;
+        listenBtn.innerHTML = "🎤 <span>Escuchar</span>";
+        resetIndicator();
+      }
+    }
+
+    function resetIndicator() {
+      indicator.innerHTML = "⚪";
+      targetNoteLabel.textContent = "";
+      stringBox.querySelectorAll(".btn-note").forEach((b) => b.classList.remove("selected"));
+      currentTarget = null;
+    }
+
+    async function checkMicPerm() {
+      if (!navigator.permissions) return "prompt";
+      try {
+        return (await navigator.permissions.query({ name: "microphone" })).state; // granted | denied | prompt
+      } catch {
+        return "prompt";
+      }
+    }
+
+    /* ------------ Autocorrelación simplificada ------------ */
+    function autoCorr(buf, sr) {
+      const SIZE = buf.length;
+      let rms = 0;
+      for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+      rms = Math.sqrt(rms / SIZE);
+      if (rms < 0.01) return -1;
+      let best = -1,
+        corr = 0,
+        MAX = Math.floor(SIZE / 2);
+      for (let o = 15; o < MAX; o++) {
+        let c = 0;
+        for (let i = 0; i < MAX; i++) c += buf[i] * buf[i + o];
+        c /= MAX;
+        if (c > corr) {
+          corr = c;
+          best = o;
+        }
+      }
+      return corr > 0.01 ? sr / best : -1;
+    }
+
+    function analyse() {
+      if (!analysing) return;
+      analyser.getFloatTimeDomainData(dataArray);
+      const p = autoCorr(dataArray, audioCtx.sampleRate);
+      if (p !== -1) {
+        let target = currentTarget;
+        if (!target) {
+          // Sin selección: usa la cuerda más cercana
+          const instr = instrumentSel.value,
+            tun = tuningSel.value;
+          target = tunings[instr][tun].reduce((a, b) =>
+            Math.abs(b.freq - p) < Math.abs(a.freq - p) ? b : a
+          );
+          autoHighlight(target.freq);
+        }
+
+        // Cálculo de cents respecto a la frecuencia objetivo
+        const cents = 1200 * Math.log2(p / target.freq);
+
+        // Estado de afinación → mensajes + color + emoticono
+        if (Math.abs(cents) <= smallToleranceCents) {
+          indicator.innerHTML = '<span class="text-[var(--c-green)]">😄 Afinado</span>';
+        } else if (Math.abs(cents) < toleranceCents) {
+          indicator.innerHTML = '<span class="text-[var(--c-orange)]">🙂 Listo</span>';
+        } else if (cents < 0) {
+          indicator.innerHTML = '<span class="text-blue-600">⬆️ Sube</span>';
+        } else {
+          indicator.innerHTML = '<span class="text-red-600">⬇️ Baja</span>';
+        }
+      }
+      requestAnimationFrame(analyse);
+    }
+  </script>
+</body>
+</html>
